@@ -1980,6 +1980,7 @@ dependencies = [
 name = "eth-bytecode-db"
 version = "0.1.0"
 dependencies = [
+ "actix-web",
  "alloy-json-abi",
  "anyhow",
  "async-trait",
