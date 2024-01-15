@@ -60,7 +60,7 @@ impl<'a, C: PubsubClient> IndexerV06<'a, C> {
                     .subscribe_logs(&filter)
                     .await?
                     .filter_map(|log| {
-                        future::ready(if log.removed == Some(true) {
+                        future::ready(if log.removed != Some(true) {
                             log.transaction_hash
                         } else {
                             None
@@ -284,7 +284,7 @@ impl<'a, C: PubsubClient> IndexerV06<'a, C> {
                             Ok(model) => Some(model),
                             Err(err) => {
                                 let logs_start_index =
-                                    logs.get(0).and_then(|l| l.log_index).map(|i| i.as_u64());
+                                    logs.first().and_then(|l| l.log_index).map(|i| i.as_u64());
                                 let logs_count = logs.len();
                                 tracing::error!(
                                     tx_hash = ?tx_hash,

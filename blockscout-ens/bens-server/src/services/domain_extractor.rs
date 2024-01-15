@@ -1,4 +1,4 @@
-use crate::conversion::{self, batch_resolve_from_inner, ConversionError};
+use crate::conversion::{self, batch_resolve_from_inner, pagination_from_logic, ConversionError};
 use async_trait::async_trait;
 use bens_logic::{
     entity,
@@ -50,7 +50,7 @@ impl DomainsExtractor for DomainsExtractorService {
         let request = request.into_inner();
         let input =
             conversion::list_domain_events_from_inner(request).map_err(map_convertion_error)?;
-        let events: Vec<DomainEvent> = self
+        let items: Vec<DomainEvent> = self
             .subgraph_reader
             .get_domain_history(input)
             .await
@@ -59,10 +59,7 @@ impl DomainsExtractor for DomainsExtractorService {
             .map(conversion::event_from_logic)
             .collect::<Result<_, _>>()
             .map_err(map_convertion_error)?;
-        let response = ListDomainEventsResponse {
-            total_records: events.len() as u32,
-            items: events,
-        };
+        let response = ListDomainEventsResponse { items };
         Ok(tonic::Response::new(response))
     }
 
@@ -73,11 +70,16 @@ impl DomainsExtractor for DomainsExtractorService {
         let request = request.into_inner();
         let input =
             conversion::lookup_domain_name_from_inner(request).map_err(map_convertion_error)?;
-        let result = self.subgraph_reader.lookup_domain(input).await;
-        let domains = from_resolved_domains_result(result)?;
+        let page_size = input.pagination.page_size;
+        let result = self
+            .subgraph_reader
+            .lookup_domain_name(input)
+            .await
+            .map_err(map_subgraph_error)?;
+        let domains = from_resolved_domains_result(result.items)?;
         let response = LookupDomainNameResponse {
-            total_records: domains.len() as u32,
             items: domains,
+            next_page_params: pagination_from_logic(result.next_page_token, page_size),
         };
         Ok(tonic::Response::new(response))
     }
@@ -88,11 +90,16 @@ impl DomainsExtractor for DomainsExtractorService {
     ) -> Result<tonic::Response<LookupAddressResponse>, tonic::Status> {
         let request = request.into_inner();
         let input = conversion::lookup_address_from_inner(request).map_err(map_convertion_error)?;
-        let result = self.subgraph_reader.lookup_address(input).await;
-        let items = from_resolved_domains_result(result)?;
+        let page_size = input.pagination.page_size;
+        let result = self
+            .subgraph_reader
+            .lookup_address(input)
+            .await
+            .map_err(map_subgraph_error)?;
+        let items = from_resolved_domains_result(result.items)?;
         let response = LookupAddressResponse {
-            total_records: items.len() as u32,
             items,
+            next_page_params: pagination_from_logic(result.next_page_token, page_size),
         };
         Ok(tonic::Response::new(response))
     }
@@ -133,10 +140,9 @@ fn map_convertion_error(err: ConversionError) -> tonic::Status {
 }
 
 fn from_resolved_domains_result(
-    result: Result<Vec<entity::subgraph::domain::Domain>, SubgraphReadError>,
+    result: impl IntoIterator<Item = entity::subgraph::domain::Domain>,
 ) -> Result<Vec<Domain>, tonic::Status> {
     result
-        .map_err(map_subgraph_error)?
         .into_iter()
         .map(conversion::domain_from_logic)
         .collect::<Result<_, _>>()
